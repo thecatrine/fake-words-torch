@@ -5,7 +5,8 @@ dtype = torch.float
 device = torch.device("cpu")
 
 letters = "abcdefghijklmnopqrstuvwxyz "
-letter_to_idx = dict([(letters[i], i) for i in range(0, 27)])
+NUM_LETTERS = 27
+letter_to_idx = dict([(letters[i], i) for i in range(0, NUM_LETTERS)])
 
 with open('words.txt') as f:
     temp_words = f.read().split('\n')[:-1]
@@ -38,7 +39,7 @@ def word_to_vec(in_word):
     return vec
 
 
-BATCH_SIZE = 1
+BATCH_SIZE = 3
 train_batches = []
 test_batches = []
 
@@ -61,9 +62,9 @@ class Test(torch.nn.Module):
 
     def __init__(self, embedding_dim, context_size):
         super(Test, self).__init__()
-        self.embeddings = torch.nn.Embedding(27, embedding_dim, device=device)
+        self.embeddings = torch.nn.Embedding(NUM_LETTERS, embedding_dim, device=device)
         self.linear1 = torch.nn.Linear(context_size * embedding_dim, 128, device=device)
-        self.linear2 = torch.nn.Linear(128, 27, device=device)
+        self.linear2 = torch.nn.Linear(128, NUM_LETTERS, device=device)
 
     def forward(self, inputs):
         embeds = self.embeddings(inputs).view(BATCH_SIZE, 1, -1)
@@ -94,7 +95,7 @@ def blarg(a):
     return a
 
 def main():
-    for epoch in range(10):
+    for epoch in range(20):
         print(f"Epoch {epoch}")
         total_loss = 0
         i = 0
@@ -107,7 +108,7 @@ def main():
 
             model.zero_grad()
             log_probs = model(train_batches[j])
-            loss = loss_function(log_probs.view(-1, 27, BATCH_SIZE), test_batches[j].view(-1, BATCH_SIZE))
+            loss = loss_function(log_probs.squeeze(), test_batches[j].squeeze())
 
             loss.backward()
             optimizer.step()
