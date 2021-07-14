@@ -8,12 +8,13 @@ letters = "abcdefghijklmnopqrstuvwxyz "
 NUM_LETTERS = 27
 letter_to_idx = dict([(letters[i], i) for i in range(0, NUM_LETTERS)])
 
-with open('words.txt') as f:
+with open('all_words') as f:
     temp_words = f.read().split('\n')[:-1]
 
 words = []
 for temp in temp_words:
     words = words + [temp[:i] for i in range(1, len(temp)+1)]
+    words = words + [temp + " "] # So it knows words end sometime
 
 
 def letter_to_vec(letter):
@@ -24,10 +25,11 @@ def letter_to_vec(letter):
     )
 
 
+CONTEXT_SIZE = 30
 def word_to_vec(in_word):
     train_word = in_word
 
-    ww = " "*20
+    ww = " "*CONTEXT_SIZE
     ww = ww[len(train_word):] + train_word[:len(train_word)]
 
     vec = torch.tensor(
@@ -39,7 +41,7 @@ def word_to_vec(in_word):
     return vec
 
 
-BATCH_SIZE = 3
+BATCH_SIZE = 5
 train_batches = []
 test_batches = []
 
@@ -64,12 +66,15 @@ class Test(torch.nn.Module):
         super(Test, self).__init__()
         self.embeddings = torch.nn.Embedding(NUM_LETTERS, embedding_dim, device=device)
         self.linear1 = torch.nn.Linear(context_size * embedding_dim, 128, device=device)
+        self.linear15 = torch.nn.Linear(128, 128, device=device)
         self.linear2 = torch.nn.Linear(128, NUM_LETTERS, device=device)
 
     def forward(self, inputs):
         embeds = self.embeddings(inputs).view(BATCH_SIZE, 1, -1)
 
         out = self.linear1(embeds)
+        out = torch.nn.functional.relu(out)
+        out = self.linear15(out)
         out = torch.nn.functional.relu(out)
         out = self.linear2(out)
 
@@ -80,12 +85,11 @@ class Test(torch.nn.Module):
 losses = []
 loss_function = torch.nn.NLLLoss()
 EMBEDDING_DIM = 50
-CONTEXT_SIZE = 20
 model = Test(EMBEDDING_DIM, CONTEXT_SIZE)
 optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
 
 
-def blarg(a):
+def blarg_old(a):
     for i in range(0, 5):
         vec = word_to_vec(a)
         out = model(torch.stack([vec for x in range(0, BATCH_SIZE)]))[0][0]
@@ -94,8 +98,19 @@ def blarg(a):
 
     return a
 
+
+def blarg(a):
+    while len(a) == 0 or (a[-1] != ' ' and len(a) < CONTEXT_SIZE):
+        vec = word_to_vec(a)
+        out = model(torch.stack([vec for x in range(0, BATCH_SIZE)]))[0][0]
+        nxt = torch.argmax(out)
+        a = a + letters[nxt]
+
+    return a
+
+
 def main():
-    for epoch in range(20):
+    for epoch in range(10):
         print(f"Epoch {epoch}")
         total_loss = 0
         i = 0
