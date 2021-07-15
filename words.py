@@ -4,18 +4,12 @@ import math
 dtype = torch.float
 device = torch.device("cpu")
 
-letters = "abcdefghijklmnopqrstuvwxyz "
+letters = "abcdefghijklmnopqrstuvwxyz _"
 NUM_LETTERS = 27
 letter_to_idx = dict([(letters[i], i) for i in range(0, NUM_LETTERS)])
 
-with open('all_words') as f:
-    temp_words = f.read().split('\n')[:-1]
-
-words = []
-for temp in temp_words:
-    words = words + [temp[:i] for i in range(1, len(temp)+1)]
-    words = words + [temp + " "] # So it knows words end sometime
-
+with open('big_words') as f:
+    words = f.read().replace('-', '').split('\n')[:-1]
 
 def letter_to_vec(letter):
     return torch.tensor(
@@ -60,21 +54,38 @@ for i in range(0, math.floor(len(words) / BATCH_SIZE), BATCH_SIZE):
 #vec = torch.tensor([letter_to_idx[x] for x in words[0]], dtype=torch.long)
 
 
+HIDDEN_SIZE = 128
 class Test(torch.nn.Module):
 
     def __init__(self, embedding_dim, context_size):
         super(Test, self).__init__()
         self.embeddings = torch.nn.Embedding(NUM_LETTERS, embedding_dim, device=device)
-        self.linear1 = torch.nn.Linear(context_size * embedding_dim, 128, device=device)
-        self.linear15 = torch.nn.Linear(128, 128, device=device)
-        self.linear2 = torch.nn.Linear(128, NUM_LETTERS, device=device)
+
+        self.linear_key = torch.nn.Linear(embedding_dim*context_size, HIDDEN_SIZE, device=device)
+        self.linear_query = torch.nn.Linear(embedding_dim*context_size, HIDDEN_SIZE, device=device)
+        self.linear_value = torch.nn.Linear(embedding_dim*context_size, HIDDEN_SIZE, device=device)
+
+        self.mha = torch.nn.MultiheadAttention(
+            HIDDEN_SIZE,
+            1,
+            batch_first=True,
+            device=device,
+        )
+
+        self.linear1 = torch.nn.Linear(HIDDEN_SIZE, HIDDEN_SIZE, device=device)
+
+        self.linear2 = torch.nn.Linear(HIDDEN_SIZE, NUM_LETTERS, device=device)
 
     def forward(self, inputs):
         embeds = self.embeddings(inputs).view(BATCH_SIZE, 1, -1)
 
-        out = self.linear1(embeds)
-        out = torch.nn.functional.relu(out)
-        out = self.linear15(out)
+        key = self.linear_key(embeds)
+        query = self.linear_query(embeds)
+        value = self.linear_value(embeds)
+
+        attn_output, attn_output_weights = self.mha(query, key, value)
+
+        out = self.linear1(attn_output)
         out = torch.nn.functional.relu(out)
         out = self.linear2(out)
 
@@ -86,7 +97,7 @@ losses = []
 loss_function = torch.nn.NLLLoss()
 EMBEDDING_DIM = 50
 model = Test(EMBEDDING_DIM, CONTEXT_SIZE)
-optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+optimizer = torch.optim.SGD(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
 
 def blarg_old(a):
@@ -94,23 +105,33 @@ def blarg_old(a):
         vec = word_to_vec(a)
         out = model(torch.stack([vec for x in range(0, BATCH_SIZE)]))[0][0]
         nxt = torch.argmax(out)
-        a = a + letters[nxt]
+        a = a + letters[nxt] 
 
     return a
 
 
-def blarg(a):
+def blarg(a, m):
     while len(a) == 0 or (a[-1] != ' ' and len(a) < CONTEXT_SIZE):
         vec = word_to_vec(a)
-        out = model(torch.stack([vec for x in range(0, BATCH_SIZE)]))[0][0]
+        out = m(torch.stack([vec for x in range(0, BATCH_SIZE)]))[0][0]
         nxt = torch.argmax(out)
         a = a + letters[nxt]
 
     return a
 
+def sample(m, a):
+    while len(a) == 0 or (a[-1] != ' ' and len(a) < CONTEXT_SIZE):
+        vec = word_to_vec(a)
+        out = m(torch.stack([vec for x in range(0, BATCH_SIZE)]))[0][0]
+        nxt = torch.softmax(out, dim=-1)
+        pick = torch.utils.data.sampler.WeightedRandomSampler(nxt, 1, replacement=False)
+        for i in pick:
+            a += letters[i]
+
+    return a
 
 def main():
-    for epoch in range(10):
+    for epoch in range(20):
         print(f"Epoch {epoch}")
         total_loss = 0
         i = 0
@@ -132,6 +153,7 @@ def main():
         losses.append(total_loss)
 
     print(losses)
+    torch.save(model.state_dict(), "mm.pt")
     import pdb; pdb.set_trace()
 
 
